@@ -15,6 +15,17 @@ void test_diff_drivers__cleanup(void)
 	g_repo = NULL;
 }
 
+static void overwrite_chmod_at_offset(char *text, size_t offset)
+{
+	size_t textlen = strlen(text);
+
+	if (cl_is_chmod_supported())
+		return;
+
+	if (textlen > offset + 6 && memcmp(&text[offset], "100644", 6) != 0)
+		memcpy(&text[offset], "100644", 6);
+}
+
 void test_diff_drivers__patterns(void)
 {
 	git_config *cfg;
@@ -148,11 +159,7 @@ void test_diff_drivers__long_lines(void)
 	cl_git_pass(git_patch_to_str(&actual, patch));
 
 	/* if chmod not supported, overwrite mode bits since anything is possible */
-	if (!cl_is_chmod_supported()) {
-		size_t actual_len = strlen(actual);
-		if (actual_len > 72 && memcmp(&actual[66], "100644", 6) != 0)
-			memcpy(&actual[66], "100644", 6);
-	}
+	overwrite_chmod_at_offset(actual, 66);
 
 	cl_assert_equal_s(expected, actual);
 
@@ -161,3 +168,72 @@ void test_diff_drivers__long_lines(void)
 	git_diff_free(diff);
 }
 
+void test_diff_drivers__builtins(void)
+{
+	git_index *idx;
+	git_diff *diff;
+	git_patch *patch;
+	char *actual;
+	git_diff_options opts = GIT_DIFF_OPTIONS_INIT;
+	const char *base =
+		"<html>\n<body>\n"
+		"  <h1 id=\"first section\">\n  <ol>\n    <li>item 1.1</li>\n    <li>item 1.2</li>\n    <li>item 1.3</li>\n    <li>item 1.4</li>\n    <li>item 1.5</li>\n    <li>item 1.6</li>\n    <li>item 1.7</li>\n    <li>item 1.8</li>\n    <li>item 1.9</li>\n  </ol>\n  </h1>\n"
+		"  <h1 id=\"second section\">\n  <ol>\n    <li>item 2.1</li>\n    <li>item 2.2</li>\n    <li>item 2.3</li>\n    <li>item 2.4</li>\n    <li>item 2.5</li>\n    <li>item 2.6</li>\n    <li>item 2.7</li>\n    <li>item 2.8</li>\n  </ol>\n  </h1>\n"
+		"  <h1 id=\"third section\">\n  <ol>\n    <li>item 3.1</li>\n    <li>item 3.2</li>\n    <li>item 3.3</li>\n    <li>item 3.4</li>\n    <li>item 3.5</li>\n    <li>item 3.6</li>\n    <li>item 3.7</li>\n    <li>item 3.8</li>\n  </ol>\n  </h1>\n"
+		"</body></html>\n";
+	const char *modified =
+		"<html>\n<body>\n"
+		"  <h1 id=\"first section\">\n  <ol>\n    <li>item 1.1</li>\n    <li>item 1.2 changed</li>\n    <li>item 1.3 changed</li>\n    <li>item 1.4</li>\n    <li>item 1.5</li>\n    <li>item 1.6</li>\n    <li>item 1.7</li>\n    <li>item 1.8</li>\n    <li>item 1.9</li>\n  <li>item 1.10 added</li>\n  </ol>\n  </h1>\n"
+		"  <h1 id=\"second section\">\n  <ol>\n    <li>item 2.1</li>\n    <li>item 2.2</li>\n    <li>item 2.3</li>\n    <li>item 2.4</li>\n    <li>item 2.5</li>\n    <li>item 2.6</li>\n    <li>item 2.7 changed</li>\n    <li>item 2.7.1 added</li>\n    <li>item 2.8</li>\n  </ol>\n  </h1>\n"
+		"  <h1 id=\"third section\">\n  <ol>\n    <li>item 3.1</li>\n    <li>item 3.2</li>\n    <li>item 3.3</li>\n    <li>item 3.4</li>\n    <li>item 3.5</li>\n    <li>item 3.6</li>\n  </ol>\n  </h1>\n"
+		"</body></html>\n";
+	const char *expected_nodriver =
+		"diff --git a/file.html b/file.html\nindex 97b34db..c7dbed3 100644\n--- a/file.html\n+++ b/file.html\n@@ -5,4 +5,4 @@\n     <li>item 1.1</li>\n-    <li>item 1.2</li>\n-    <li>item 1.3</li>\n+    <li>item 1.2 changed</li>\n+    <li>item 1.3 changed</li>\n     <li>item 1.4</li>\n@@ -13,2 +13,3 @@\n     <li>item 1.9</li>\n+  <li>item 1.10 added</li>\n   </ol>\n@@ -23,3 +24,4 @@\n     <li>item 2.6</li>\n-    <li>item 2.7</li>\n+    <li>item 2.7 changed</li>\n+    <li>item 2.7.1 added</li>\n     <li>item 2.8</li>\n@@ -35,4 +37,2 @@\n     <li>item 3.6</li>\n-    <li>item 3.7</li>\n-    <li>item 3.8</li>\n   </ol>\n";
+	const char *expected_driver =
+		"diff --git a/file.html b/file.html\nindex 97b34db..c7dbed3 100644\n--- a/file.html\n+++ b/file.html\n@@ -5,4 +5,4 @@   <h1 id=\"first section\">\n     <li>item 1.1</li>\n-    <li>item 1.2</li>\n-    <li>item 1.3</li>\n+    <li>item 1.2 changed</li>\n+    <li>item 1.3 changed</li>\n     <li>item 1.4</li>\n@@ -13,2 +13,3 @@   <h1 id=\"first section\">\n     <li>item 1.9</li>\n+  <li>item 1.10 added</li>\n   </ol>\n@@ -23,3 +24,4 @@   <h1 id=\"second section\">\n     <li>item 2.6</li>\n-    <li>item 2.7</li>\n+    <li>item 2.7 changed</li>\n+    <li>item 2.7.1 added</li>\n     <li>item 2.8</li>\n@@ -35,4 +37,2 @@   <h1 id=\"third section\">\n     <li>item 3.6</li>\n-    <li>item 3.7</li>\n-    <li>item 3.8</li>\n   </ol>\n";
+
+	g_repo = cl_git_sandbox_init("empty_standard_repo");
+
+	cl_git_mkfile("empty_standard_repo/file.html", base);
+	cl_git_pass(git_repository_index(&idx, g_repo));
+	cl_git_pass(git_index_add_bypath(idx, "file.html"));
+	cl_git_pass(git_index_write(idx));
+	git_index_free(idx);
+
+	cl_git_rewritefile("empty_standard_repo/file.html", modified);
+
+	/* do diff with no special driver */
+
+	opts.interhunk_lines = 1;
+	opts.context_lines = 1;
+
+	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
+	cl_assert_equal_sz(1, git_diff_num_deltas(diff));
+	cl_git_pass(git_patch_from_diff(&patch, diff, 0));
+	cl_git_pass(git_patch_to_str(&actual, patch));
+
+	overwrite_chmod_at_offset(actual, 59);
+
+	cl_assert_equal_s(expected_nodriver, actual);
+
+	free(actual);
+	git_patch_free(patch);
+	git_diff_free(diff);
+
+	/* do diff with HTML driver */
+
+	cl_git_mkfile("empty_standard_repo/.gitattributes", "*.html diff=html\n");
+
+	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
+	cl_assert_equal_sz(1, git_diff_num_deltas(diff));
+	cl_git_pass(git_patch_from_diff(&patch, diff, 0));
+	cl_git_pass(git_patch_to_str(&actual, patch));
+
+	overwrite_chmod_at_offset(actual, 59);
+
+	cl_assert_equal_s(expected_driver, actual);
+
+	free(actual);
+	git_patch_free(patch);
+	git_diff_free(diff);
+}
