@@ -1,7 +1,5 @@
 # - Try to find http-parser
-#
 # Defines the following variables:
-#
 # HTTP_PARSER_FOUND - system has http-parser
 # HTTP_PARSER_INCLUDE_DIR - the http-parser include directory
 # HTTP_PARSER_LIBRARIES - Link these to use http-parser
